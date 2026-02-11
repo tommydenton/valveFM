@@ -11,6 +11,12 @@ brew tap zorig/tap
 brew install valvefm
 ```
 
+### Chocolatey (Windows)
+
+```powershell
+choco install valvefm
+```
+
 ### From source
 
 ## Requirements
@@ -34,7 +40,7 @@ Notes:
 - Windows auto-downloads `ffplay.exe` on first run if no player is found.
 
 ### ⚠️ Windows SmartScreen Warning
-When running `valvefm-windows.exe` for the first time, Windows might show a "Windows protected your PC" warning because the app is unsigned.
+When running `valvefm-windows-amd64.exe` for the first time, Windows might show a "Windows protected your PC" warning because the app is unsigned.
 1. Click **More info**.
 2. Click **Run anyway**.
 (This is normal for open-source software without an expensive code signing certificate.)
