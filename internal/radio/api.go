@@ -153,7 +153,8 @@ func (c *Client) getBytes(ctx context.Context, reqURL string) ([]byte, error) {
 		return nil, fmt.Errorf("request failed: %s", resp.Status)
 	}
 
-	return io.ReadAll(resp.Body)
+	// Limit response size to 10MB to prevent OOM on malformed responses
+	return io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 }
 
 func (c *Client) pickRandomServer() (string, error) {

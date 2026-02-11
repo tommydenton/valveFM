@@ -134,11 +134,10 @@ func (g *GoPlayer) cleanupLocked() {
 		g.streamer.Close()
 		g.streamer = nil
 	}
-	// Response body is closed by streamer.Close() usually, but be safe
-	if g.resp != nil {
-		g.resp.Body.Close()
-		g.resp = nil
-	}
+	// Note: mp3.Decode wraps the reader but may not close it on Close().
+	// We nil out resp to avoid double-close attempts; the GC will handle cleanup.
+	// Explicitly closing resp.Body here could cause issues if streamer already closed it.
+	g.resp = nil
 	g.playing = false
 }
 
