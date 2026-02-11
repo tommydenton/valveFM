@@ -25,7 +25,7 @@ jobs:
           - os: macos-latest
             goarch: arm64
             artifact: valvefm-macos-arm64
-          - os: macos-13
+          - os: macos-latest
             goarch: amd64
             artifact: valvefm-macos-amd64
           - os: windows-latest
