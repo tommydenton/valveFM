@@ -28,6 +28,8 @@ jobs:
           - os: macos-latest
             goarch: amd64
             artifact: valvefm-macos-amd64
+            cgo_cflags: "-arch x86_64"
+            cgo_ldflags: "-arch x86_64"
           - os: windows-latest
             goarch: amd64
             artifact: valvefm-windows-amd64.exe
@@ -49,6 +51,9 @@ jobs:
         shell: bash
         env:
           GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CGO_CFLAGS: ${{ matrix.cgo_cflags }}
+          CGO_LDFLAGS: ${{ matrix.cgo_ldflags }}
         run: |
           mkdir -p dist
           go build -trimpath -ldflags="-s -w" -o dist/${{ matrix.artifact }} ./cmd/radio-tray
