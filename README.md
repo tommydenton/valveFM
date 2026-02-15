@@ -11,7 +11,7 @@ brew tap zorig/tap
 brew install valvefm
 ```
 
-### Chocolatey (Windows)
+### Chocolatey (Windows) soon!
 
 ```powershell
 choco install valvefm
