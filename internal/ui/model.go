@@ -231,11 +231,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.moveSelection(1) {
 				return m, m.dialTickCmd()
 			}
-		case "up":
+		case "up", "k":
 			if m.moveSelection(-1) {
 				return m, m.dialTickCmd()
 			}
-		case "down":
+		case "down", "j":
 			if m.moveSelection(1) {
 				return m, m.dialTickCmd()
 			}
