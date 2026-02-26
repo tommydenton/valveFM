@@ -18,11 +18,20 @@ import (
 
 type inputMode int
 
+type stationSource int
+
 const (
 	inputNone inputMode = iota
 	inputLocation
 	inputSearch
 	inputCountrySelect
+
+	stationPageSize = 200
+)
+
+const (
+	sourceCountry stationSource = iota
+	sourceFavorites
 )
 
 type Model struct {
@@ -33,13 +42,17 @@ type Model struct {
 	ipc       *ipcServer
 
 	stations []radio.Station
-	filtered []radio.Station
 	selected int
 
 	loading bool
 	errMsg  string
 
 	country string
+	page    int
+	hasMore bool
+
+	stationSource stationSource
+	activeSearch string
 
 	inputMode     inputMode
 	location      textinput.Model
@@ -74,6 +87,11 @@ type Model struct {
 
 type stationsMsg struct {
 	stations []radio.Station
+	source   stationSource
+	page     int
+	country  string
+	search   string
+	hasMore  bool
 	err      error
 }
 
@@ -131,10 +149,14 @@ func NewModel(api *radio.Client, player player.Backend, favorites *config.Favori
 		theme:         theme,
 		themeIdx:      themeIdx,
 		country:       "US",
+		stationSource: sourceCountry,
 		location:      location,
 		search:        search,
 		countrySearch: countrySearch,
 		loading:       true,
+	}
+	if favorites != nil && favorites.Count() > 0 {
+		m.stationSource = sourceFavorites
 	}
 
 	if playerErr != nil {
@@ -239,6 +261,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.moveSelection(1) {
 				return m, m.dialTickCmd()
 			}
+		case "]", "pgdown":
+			if m.loading {
+				return m, nil
+			}
+			if !m.hasMore {
+				m.errMsg = "No more stations on the next page"
+				return m, nil
+			}
+			m.page++
+			m.selected = 0
+			m.loading = true
+			m.errMsg = ""
+			return m, m.loadStationsCmd()
+		case "[", "pgup":
+			if m.loading {
+				return m, nil
+			}
+			if m.page == 0 {
+				m.errMsg = "Already on the first page"
+				return m, nil
+			}
+			m.page--
+			m.selected = 0
+			m.loading = true
+			m.errMsg = ""
+			return m, m.loadStationsCmd()
 		case "enter":
 			if station, ok := m.currentStation(); ok {
 				m.errMsg = ""
@@ -268,8 +316,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyCountryFilter()
 			m.ensureCountrySelection()
 			return m, textinput.Blink
+		case "V", "v":
+			if m.favorites == nil || m.favorites.Count() == 0 {
+				m.errMsg = "No favorites saved yet"
+				return m, nil
+			}
+			m.stationSource = sourceFavorites
+			m.activeSearch = ""
+			m.search.SetValue("")
+			m.page = 0
+			m.hasMore = false
+			m.selected = 0
+			m.loading = true
+			m.errMsg = ""
+			return m, m.loadStationsCmd()
 		case "/":
 			m.inputMode = inputSearch
+			m.search.SetValue(m.activeSearch)
 			m.search.Focus()
 			m.search.CursorEnd()
 			return m, textinput.Blink
@@ -281,23 +344,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					_, err := m.favorites.Toggle(station)
 					if err != nil {
 						m.errMsg = err.Error()
+						return m, nil
+					}
+					if m.stationSource == sourceFavorites {
+						m.page = 0
+						m.hasMore = false
+						m.selected = 0
+						m.loading = true
+						return m, m.loadStationsCmd()
 					}
 				}
 			}
 		}
 	case stationsMsg:
+		if msg.source != m.stationSource || msg.page != m.page || msg.country != m.country || msg.search != m.activeSearch {
+			return m, nil
+		}
 		m.loading = false
 		if msg.err != nil {
 			m.errMsg = msg.err.Error()
 			m.stations = nil
-			m.filtered = nil
+			m.hasMore = false
 			m.selected = 0
 			return m, nil
 		}
 		m.errMsg = ""
 		m.stations = msg.stations
+		m.hasMore = msg.hasMore
 		m.selected = 0
-		m.applyFilter()
 		m.ensureSelection()
 		m.updateDialRange()
 		m.snapDial()
@@ -387,14 +461,103 @@ func (m Model) saveThemeCmd() tea.Cmd {
 }
 
 func (m Model) loadStationsCmd() tea.Cmd {
+	source := m.stationSource
 	country := m.country
+	search := strings.TrimSpace(m.activeSearch)
+	page := m.page
 	api := m.api
+	favorites := m.favorites
 	return func() tea.Msg {
-		if api == nil {
-			return stationsMsg{err: fmt.Errorf("radio api not available")}
+		if source == sourceFavorites {
+			all := []radio.Station{}
+			if favorites != nil {
+				all = favoritesToStations(favorites.List())
+			}
+
+			if search != "" {
+				filtered := make([]radio.Station, 0, len(all))
+				searchLower := strings.ToLower(search)
+				for _, station := range all {
+					name := strings.ToLower(station.Name)
+					tags := strings.ToLower(station.Tags)
+					countryName := strings.ToLower(station.Country)
+					if strings.Contains(name, searchLower) || strings.Contains(tags, searchLower) || strings.Contains(countryName, searchLower) {
+						filtered = append(filtered, station)
+					}
+				}
+				all = filtered
+			}
+
+			offset := page * stationPageSize
+			if offset < 0 {
+				offset = 0
+			}
+			if offset >= len(all) {
+				return stationsMsg{
+					stations: nil,
+					source:   source,
+					page:     page,
+					country:  country,
+					search:   search,
+					hasMore:  false,
+				}
+			}
+
+			end := offset + stationPageSize
+			hasMore := false
+			if end < len(all) {
+				hasMore = true
+			} else {
+				end = len(all)
+			}
+
+			return stationsMsg{
+				stations: all[offset:end],
+				source:   source,
+				page:     page,
+				country:  country,
+				search:   search,
+				hasMore:  hasMore,
+			}
 		}
-		stations, err := api.StationsByCountry(context.Background(), country)
-		return stationsMsg{stations: stations, err: err}
+
+		if api == nil {
+			return stationsMsg{err: fmt.Errorf("radio api not available"), source: source}
+		}
+		offset := page * stationPageSize
+		limit := stationPageSize + 1
+
+		var (
+			stations []radio.Station
+			err      error
+		)
+		if search == "" {
+			stations, err = api.StationsByCountryPage(context.Background(), country, limit, offset)
+		} else {
+			stations, err = api.SearchStationsByCountry(context.Background(), country, search, limit, offset)
+		}
+		if err != nil {
+			return stationsMsg{
+				err:     err,
+				source:  source,
+				page:    page,
+				country: country,
+				search:  search,
+			}
+		}
+
+		hasMore := len(stations) > stationPageSize
+		if hasMore {
+			stations = stations[:stationPageSize]
+		}
+		return stationsMsg{
+			stations: stations,
+			source:   source,
+			page:     page,
+			country:  country,
+			search:   search,
+			hasMore:  hasMore,
+		}
 	}
 }
 
@@ -490,11 +653,17 @@ func (m Model) updateLocationInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.inputMode = inputNone
 			m.location.Blur()
+			m.stationSource = sourceCountry
 			m.country = strings.ToUpper(strings.TrimSpace(m.location.Value()))
 			if m.country == "" {
 				m.country = "US"
 			}
+			m.page = 0
+			m.hasMore = false
+			m.activeSearch = ""
+			m.search.SetValue("")
 			m.loading = true
+			m.errMsg = ""
 			return m, m.loadStationsCmd()
 		case "esc":
 			m.inputMode = inputNone
@@ -509,25 +678,23 @@ func (m Model) updateLocationInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateSearchInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.search, cmd = m.search.Update(msg)
-	m.applyFilter()
-	m.ensureSelection()
-	m.updateDialRange()
-	m.snapDial()
 
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "enter":
 			m.inputMode = inputNone
+			m.activeSearch = strings.TrimSpace(m.search.Value())
 			m.search.Blur()
-			return m, nil
+			m.page = 0
+			m.hasMore = false
+			m.selected = 0
+			m.loading = true
+			m.errMsg = ""
+			return m, m.loadStationsCmd()
 		case "esc":
 			m.inputMode = inputNone
-			m.search.SetValue("")
+			m.search.SetValue(m.activeSearch)
 			m.search.Blur()
-			m.applyFilter()
-			m.ensureSelection()
-			m.updateDialRange()
-			m.snapDial()
 			return m, nil
 		}
 	}
@@ -552,8 +719,14 @@ func (m Model) updateCountrySelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.inputMode = inputNone
 				m.countrySearch.Blur()
 				m.countrySearch.SetValue("")
+				m.stationSource = sourceCountry
 				m.country = strings.ToUpper(strings.TrimSpace(country.Code))
+				m.page = 0
+				m.hasMore = false
+				m.activeSearch = ""
+				m.search.SetValue("")
 				m.loading = true
+				m.errMsg = ""
 				return m, m.loadStationsCmd()
 			}
 		case "esc":
@@ -663,27 +836,6 @@ func sendIPCReply(ch chan ipcReply, reply ipcReply) {
 	}
 }
 
-func (m *Model) applyFilter() {
-	filter := strings.TrimSpace(strings.ToLower(m.search.Value()))
-	if filter == "" {
-		m.filtered = nil
-		return
-	}
-
-	filtered := make([]radio.Station, 0, len(m.stations))
-	for _, station := range m.stations {
-		name := strings.ToLower(station.Name)
-		tags := strings.ToLower(station.Tags)
-		if strings.Contains(name, filter) || strings.Contains(tags, filter) {
-			filtered = append(filtered, station)
-		}
-	}
-	if len(filtered) == 0 {
-		m.selected = 0
-	}
-	m.filtered = filtered
-}
-
 func (m *Model) applyCountryFilter() {
 	filter := strings.TrimSpace(strings.ToLower(m.countrySearch.Value()))
 	if filter == "" {
@@ -787,9 +939,6 @@ func (m *Model) currentCountry() (radio.Country, bool) {
 }
 
 func (m *Model) visibleStations() []radio.Station {
-	if strings.TrimSpace(m.search.Value()) != "" {
-		return m.filtered
-	}
 	return m.stations
 }
 
@@ -798,6 +947,26 @@ func (m *Model) visibleCountries() []radio.Country {
 		return m.filteredCountries
 	}
 	return m.countries
+}
+
+func (m *Model) isFavoritesSource() bool {
+	return m.stationSource == sourceFavorites
+}
+
+func favoritesToStations(favs []config.Favorite) []radio.Station {
+	stations := make([]radio.Station, 0, len(favs))
+	for _, fav := range favs {
+		if strings.TrimSpace(fav.UUID) == "" {
+			continue
+		}
+		stations = append(stations, radio.Station{
+			UUID:    fav.UUID,
+			Name:    fav.Name,
+			Country: fav.Country,
+			Tags:    fav.Tags,
+		})
+	}
+	return stations
 }
 
 func (m *Model) snapDial() {

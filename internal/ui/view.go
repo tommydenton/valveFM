@@ -109,10 +109,14 @@ func (m Model) renderHeader(width int) string {
 	}
 
 	left := "VALVE FM"
+	source := strings.ToUpper(m.country)
+	if m.isFavoritesSource() {
+		source = "FAVORITES"
+	}
 	if width >= 30 {
-		left = fmt.Sprintf("VALVE FM [%s] FM STEREO", strings.ToUpper(m.country))
+		left = fmt.Sprintf("VALVE FM [%s] FM STEREO", source)
 	} else if width >= 20 {
-		left = fmt.Sprintf("VALVE FM [%s]", strings.ToUpper(m.country))
+		left = fmt.Sprintf("VALVE FM [%s]", source)
 	}
 	right := statusStyle.Render(status)
 	line := joinHeader(left, right, width)
@@ -250,15 +254,34 @@ func (m Model) renderStationMetaCompact(width int, tiny bool) string {
 
 func (m Model) renderList(width int, maxItems int) string {
 	list := m.visibleStations()
-	lines := []string{m.styles.ListHeader.Render("Stations")}
+	header := fmt.Sprintf("Stations (Page %d)", m.page+1)
+	if m.isFavoritesSource() {
+		header = fmt.Sprintf("Favorites (Page %d)", m.page+1)
+	}
+	if strings.TrimSpace(m.activeSearch) != "" {
+		if m.isFavoritesSource() {
+			header = fmt.Sprintf("Favorites Search: %q (Page %d)", m.activeSearch, m.page+1)
+		} else {
+			header = fmt.Sprintf("Search: %q (Page %d)", m.activeSearch, m.page+1)
+		}
+	}
+	lines := []string{m.styles.ListHeader.Render(header)}
 
 	if m.loading {
-		lines = append(lines, m.styles.Muted.Render("Loading stations..."))
+		label := "Loading stations..."
+		if m.isFavoritesSource() {
+			label = "Loading favorites..."
+		}
+		lines = append(lines, m.styles.Muted.Render(label))
 		return m.styles.Panel.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
 
 	if len(list) == 0 {
-		lines = append(lines, m.styles.Muted.Render("No stations found"))
+		label := "No stations found"
+		if m.isFavoritesSource() {
+			label = "No favorites found"
+		}
+		lines = append(lines, m.styles.Muted.Render(label))
 		return m.styles.Panel.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
 
@@ -316,12 +339,12 @@ func (m Model) renderKeyHints(width int) string {
 		return "Enter Play  Q Quit"
 	}
 	if width < 44 {
-		return "Arrows Tune  Enter Play  Space Stop  Q Quit"
+		return "Arrows Tune  Enter Play  Space Stop  [ ] Page  Q Quit"
 	}
 	if width < 62 {
-		return "Arrows Tune  Enter Play  Space Stop  L Country  / Search  T Theme  ? Help  Q Quit"
+		return "Arrows Tune  Enter Play  Space Stop  [ ] Page  L Country  V Favorites  / Search  T Theme  ? Help  Q Quit"
 	}
-	return "Arrows Tune  Up/Down Browse  Enter Play  Space Stop  L Country  / Search  F Favorite  T Theme  ? Help  Q Quit"
+	return "Arrows Tune  Up/Down Browse  Enter Play  Space Stop  [ ] Page  L Country  V Favorites  / Search  F Favorite  T Theme  ? Help  Q Quit"
 }
 
 func (m Model) renderHelp() string {
@@ -332,8 +355,10 @@ func (m Model) renderHelp() string {
 		"Up/Down      Browse list",
 		"Enter        Play station",
 		"Space        Stop/Resume",
+		"[ / ]        Previous/Next stations page",
 		"L            Choose country",
-		"/            Search stations",
+		"V            Show favorites",
+		"/            Search stations (country API or local favorites)",
 		"F            Favorite station",
 		"T            Change theme",
 		"?            Close help",

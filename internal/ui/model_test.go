@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"radio-tui/internal/config"
 	"radio-tui/internal/radio"
 )
 
@@ -38,14 +39,32 @@ func TestModel_VisibleStations_NoFilter(t *testing.T) {
 	}
 }
 
-func TestModel_VisibleStations_WithFilter(t *testing.T) {
+func TestModel_VisibleStations_IgnoresSearchInput(t *testing.T) {
 	m := createTestModel()
-	m.filtered = []radio.Station{m.stations[0], m.stations[2]} // Rock FM, Jazz Station
-	m.search.SetValue("test")                                  // Non-empty to trigger filter
+	m.search.SetValue("rock")
 
 	stations := m.visibleStations()
+	if len(stations) != 5 {
+		t.Errorf("visibleStations() = %d stations, want 5", len(stations))
+	}
+}
+
+func TestFavoritesToStations(t *testing.T) {
+	favs := []config.Favorite{
+		{UUID: "a", Name: "Alpha", Country: "US", Tags: "rock"},
+		{UUID: "", Name: "Skip"},
+		{UUID: "b", Name: "Bravo", Country: "JP", Tags: "jazz"},
+	}
+
+	stations := favoritesToStations(favs)
 	if len(stations) != 2 {
-		t.Errorf("visibleStations() with filter = %d stations, want 2", len(stations))
+		t.Fatalf("favoritesToStations() len = %d, want 2", len(stations))
+	}
+	if stations[0].UUID != "a" || stations[0].Name != "Alpha" {
+		t.Fatalf("first station = %+v, want UUID a / Name Alpha", stations[0])
+	}
+	if stations[1].UUID != "b" || stations[1].Country != "JP" {
+		t.Fatalf("second station = %+v, want UUID b / Country JP", stations[1])
 	}
 }
 

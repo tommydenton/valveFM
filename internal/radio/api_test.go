@@ -49,6 +49,12 @@ func TestClient_StationsByCountry(t *testing.T) {
 		if r.URL.Query().Get("order") != "clickcount" {
 			t.Error("order should be clickcount")
 		}
+		if r.URL.Query().Get("limit") != "200" {
+			t.Error("limit should be 200")
+		}
+		if r.URL.Query().Get("offset") != "0" {
+			t.Error("offset should default to 0")
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(stations)
@@ -72,6 +78,162 @@ func TestClient_StationsByCountry(t *testing.T) {
 	}
 	if result[0].Name != "Station 1" {
 		t.Errorf("first station name = %q, want %q", result[0].Name, "Station 1")
+	}
+}
+
+func TestClient_StationsByCountryPage(t *testing.T) {
+	var capturedPath string
+	var capturedQuery = make(map[string]string)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		for key := range r.URL.Query() {
+			capturedQuery[key] = r.URL.Query().Get(key)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]Station{})
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:   server.URL,
+		userAgent: "TestApp/1.0",
+		http:      &http.Client{Timeout: 5 * time.Second},
+	}
+
+	_, err := client.StationsByCountryPage(context.Background(), "us", 125, 250)
+	if err != nil {
+		t.Fatalf("StationsByCountryPage() error = %v", err)
+	}
+
+	if !strings.Contains(capturedPath, "/json/stations/bycountrycodeexact/US") {
+		t.Fatalf("unexpected path: %s", capturedPath)
+	}
+	if capturedQuery["limit"] != "125" {
+		t.Errorf("limit = %q, want %q", capturedQuery["limit"], "125")
+	}
+	if capturedQuery["offset"] != "250" {
+		t.Errorf("offset = %q, want %q", capturedQuery["offset"], "250")
+	}
+}
+
+func TestClient_StationsByCountryPage_InvalidPaging(t *testing.T) {
+	client := &Client{
+		baseURL:   "http://example.com",
+		userAgent: "TestApp/1.0",
+		http:      &http.Client{Timeout: 5 * time.Second},
+	}
+
+	_, err := client.StationsByCountryPage(context.Background(), "US", 0, 0)
+	if err == nil {
+		t.Fatal("expected error for zero limit")
+	}
+
+	_, err = client.StationsByCountryPage(context.Background(), "US", 200, -1)
+	if err == nil {
+		t.Fatal("expected error for negative offset")
+	}
+}
+
+func TestClient_SearchStationsByCountry(t *testing.T) {
+	var capturedPath string
+	var capturedQuery = make(map[string]string)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		for key := range r.URL.Query() {
+			capturedQuery[key] = r.URL.Query().Get(key)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]Station{})
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:   server.URL,
+		userAgent: "TestApp/1.0",
+		http:      &http.Client{Timeout: 5 * time.Second},
+	}
+
+	_, err := client.SearchStationsByCountry(context.Background(), "us", "rock", 100, 200)
+	if err != nil {
+		t.Fatalf("SearchStationsByCountry() error = %v", err)
+	}
+
+	if capturedPath != "/json/stations/search" {
+		t.Fatalf("unexpected path: %s", capturedPath)
+	}
+	if capturedQuery["countrycodeexact"] != "US" {
+		t.Errorf("countrycodeexact = %q, want %q", capturedQuery["countrycodeexact"], "US")
+	}
+	if capturedQuery["name"] != "rock" {
+		t.Errorf("name = %q, want %q", capturedQuery["name"], "rock")
+	}
+	if capturedQuery["tag"] != "" {
+		t.Errorf("tag should be empty for name-first search, got %q", capturedQuery["tag"])
+	}
+	if capturedQuery["limit"] != "100" {
+		t.Errorf("limit = %q, want %q", capturedQuery["limit"], "100")
+	}
+	if capturedQuery["offset"] != "200" {
+		t.Errorf("offset = %q, want %q", capturedQuery["offset"], "200")
+	}
+}
+
+func TestClient_SearchStationsByCountry_FallbackToTag(t *testing.T) {
+	requests := make([]map[string]string, 0, 2)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := map[string]string{}
+		for key := range r.URL.Query() {
+			query[key] = r.URL.Query().Get(key)
+		}
+		requests = append(requests, query)
+
+		w.Header().Set("Content-Type", "application/json")
+		if query["name"] != "" {
+			json.NewEncoder(w).Encode([]Station{})
+			return
+		}
+		json.NewEncoder(w).Encode([]Station{{UUID: "tag-hit", Name: "Tag Match"}})
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:   server.URL,
+		userAgent: "TestApp/1.0",
+		http:      &http.Client{Timeout: 5 * time.Second},
+	}
+
+	result, err := client.SearchStationsByCountry(context.Background(), "US", "classic", 50, 0)
+	if err != nil {
+		t.Fatalf("SearchStationsByCountry() error = %v", err)
+	}
+
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(requests))
+	}
+	if requests[0]["name"] != "classic" {
+		t.Errorf("first request should be name search, got name=%q", requests[0]["name"])
+	}
+	if requests[1]["tag"] != "classic" {
+		t.Errorf("second request should be tag search, got tag=%q", requests[1]["tag"])
+	}
+	if len(result) != 1 || result[0].UUID != "tag-hit" {
+		t.Fatalf("unexpected fallback result: %+v", result)
+	}
+}
+
+func TestClient_SearchStationsByCountry_RequiresSearch(t *testing.T) {
+	client := &Client{
+		baseURL:   "http://example.com",
+		userAgent: "TestApp/1.0",
+		http:      &http.Client{Timeout: 5 * time.Second},
+	}
+
+	_, err := client.SearchStationsByCountry(context.Background(), "US", "  ", 100, 0)
+	if err == nil {
+		t.Fatal("expected error for empty search query")
 	}
 }
 

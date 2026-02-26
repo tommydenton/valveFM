@@ -57,10 +57,12 @@ GOOS=windows GOARCH=amd64 go build -o valvefm.exe ./cmd/radio-tray
 
 - Left / Right: tune dial
 - Up / Down: browse stations
+- [ / ]: previous / next stations page
 - Enter: play station
 - Space: stop / resume
 - L: choose country (searchable list)
-- /: search stations
+- V: show favorites
+- /: search stations (server-side in country mode, local in favorites mode)
 - F: toggle favorite
 - T: change theme
 - ?: help
@@ -69,6 +71,8 @@ GOOS=windows GOARCH=amd64 go build -o valvefm.exe ./cmd/radio-tray
 ## Notes
 
 - Stations are fetched from the Radio Browser API and sorted by popularity.
+- Station list and search results are paginated (200 stations per page).
+- If favorites exist, app opens with favorites list by default.
 - Country selection uses a searchable list from the API.
 - Favorites are saved to `~/.config/valvefm/favorites.json`.
 - Theme preference is saved to `~/.config/valvefm/config.json`.
@@ -78,9 +82,11 @@ GOOS=windows GOARCH=amd64 go build -o valvefm.exe ./cmd/radio-tray
 
 - Launch: `go run ./cmd/radio-tray` starts TUI and tray.
 - Country selector: `L` opens list, filter works, Enter loads stations.
+- Favorites view: `V` opens saved favorites.
 - Playback: Enter starts audio, Space stops/resumes.
 - Next/Prev: tray controls move station and auto-play.
-- Search: `/` filters stations and restores when cleared.
+- Search: `/` runs server-side search in country mode and local search in favorites mode.
+- Pagination: `[` and `]` move between station pages.
 - Quit: tray Quit and `Q` cleanly stop playback.
 
 ## Licenses

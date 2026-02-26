@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 
 	"radio-tui/internal/radio"
@@ -86,6 +88,31 @@ func (f *Favorites) IsFavorite(uuid string) bool {
 	defer f.mu.Unlock()
 	_, ok := f.items[uuid]
 	return ok
+}
+
+func (f *Favorites) Count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.items)
+}
+
+func (f *Favorites) List() []Favorite {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	list := make([]Favorite, 0, len(f.items))
+	for _, fav := range f.items {
+		list = append(list, fav)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		ni := strings.ToLower(strings.TrimSpace(list[i].Name))
+		nj := strings.ToLower(strings.TrimSpace(list[j].Name))
+		if ni == nj {
+			return list[i].UUID < list[j].UUID
+		}
+		return ni < nj
+	})
+	return list
 }
 
 func (f *Favorites) saveLocked() error {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -273,5 +274,30 @@ func TestFavorite_StoresStationData(t *testing.T) {
 	}
 	if fav.Tags != station.Tags {
 		t.Errorf("Tags = %q, want %q", fav.Tags, station.Tags)
+	}
+}
+
+func TestFavorites_CountAndList(t *testing.T) {
+	favs := newTestFavorites(t)
+
+	stations := []radio.Station{
+		{UUID: "2", Name: "Zulu FM", Country: "US"},
+		{UUID: "1", Name: "Alpha FM", Country: "US"},
+	}
+	for _, s := range stations {
+		if _, err := favs.Toggle(s); err != nil {
+			t.Fatalf("Toggle() error = %v", err)
+		}
+	}
+
+	if got := favs.Count(); got != 2 {
+		t.Fatalf("Count() = %d, want 2", got)
+	}
+
+	list := favs.List()
+	gotOrder := []string{list[0].Name, list[1].Name}
+	wantOrder := []string{"Alpha FM", "Zulu FM"}
+	if !reflect.DeepEqual(gotOrder, wantOrder) {
+		t.Fatalf("List() order = %v, want %v", gotOrder, wantOrder)
 	}
 }
